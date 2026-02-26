@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BAM Sheet Reader</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f1a0f;
+    --surface: #162016;
+    --surface2: #1e2e1e;
+    --border: #2a3d2a;
+    --accent: #6dcc6d;
+    --accent2: #b8f0b8;
+    --muted: #4a6b4a;
+    --text: #e8f5e8;
+    --text2: #a0bfa0;
+    --danger: #ff6b6b;
+    --mono: 'Space Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.5;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface);
+  }
+
+  .logo {
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .logo svg { width: 20px; height: 20px; fill: var(--bg); }
+
+  .header-text h1 {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+
+  .header-text p {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 2px;
+  }
+
+  .badge {
+    margin-left: auto;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.08em;
+  }
+
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+
+  .upload-area {
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 56px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--surface);
+    position: relative;
+  }
+
+  .upload-area:hover, .upload-area.dragover {
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .upload-area input[type=file] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+
+  .upload-icon {
+    width: 56px;
+    height: 56px;
+    background: var(--surface2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+    border: 1px solid var(--border);
+  }
+
+  .upload-icon svg { width: 24px; height: 24px; stroke: var(--accent); fill: none; stroke-width: 2; }
+
+  .upload-area h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .upload-area p {
+    color: var(--text2);
+    font-size: 14px;
+  }
+
+  .upload-area .hint {
+    margin-top: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  .file-list {
+    margin-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .file-chip {
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent2);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .file-chip button {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+  }
+
+  .file-chip button:hover { color: var(--danger); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 28px;
+    border-radius: 8px;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: none;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  .actions {
+    margin-top: 28px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .status-bar {
+    margin-top: 24px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text2);
+    display: none;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .status-bar.visible { display: flex; }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .results {
+    margin-top: 40px;
+    display: none;
+  }
+
+  .results.visible { display: block; }
+
+  .results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    flex-wrap: gap;
+    gap: 12px;
+  }
+
+  .results-header h2 {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 20px;
+  }
+
+  .tab {
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: var(--text2);
+    transition: all 0.15s;
+    font-family: var(--sans);
+  }
+
+  .tab.active {
+    background: var(--surface2);
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .info-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+
+  .info-card label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .info-card .value {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    word-break: break-all;
+  }
+
+  .info-card .value.empty {
+    color: var(--muted);
+    font-style: italic;
+    font-size: 12px;
+  }
+
+  .copy-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+
+  .copy-block-header {
+    padding: 10px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text2);
+    letter-spacing: 0.05em;
+  }
+
+  .copy-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.05em;
+  }
+
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { border-color: var(--accent); color: var(--accent); }
+
+  textarea.data-output {
+    width: 100%;
+    background: var(--surface);
+    border: none;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 16px;
+    resize: vertical;
+    min-height: 200px;
+    outline: none;
+    line-height: 1.7;
+  }
+
+  .species-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .species-table th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface2);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .species-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  .species-table tr:last-child td { border-bottom: none; }
+
+  .species-table tr:hover td { background: var(--surface2); }
+
+  .species-name { font-style: italic; }
+
+  .exotic-badge {
+    display: inline-block;
+    background: rgba(255,107,107,0.15);
+    border: 1px solid rgba(255,107,107,0.3);
+    color: #ff9999;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    margin-left: 6px;
+    font-style: normal;
+  }
+
+  .uncertain-badge {
+    display: inline-block;
+    background: rgba(255,180,0,0.12);
+    border: 1px solid rgba(255,180,0,0.35);
+    color: #ffcc44;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    margin-left: 6px;
+    font-style: normal;
+    cursor: help;
+  }
+
+  .suggestion-row td {
+    padding-top: 0 !important;
+    padding-bottom: 8px !important;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .suggestion-text {
+    font-size: 11px;
+    color: #ffcc44;
+    font-family: var(--mono);
+    padding: 3px 8px 3px 12px;
+    background: rgba(255,180,0,0.06);
+    border-left: 2px solid rgba(255,180,0,0.3);
+    border-radius: 0 4px 4px 0;
+    display: inline-block;
+    margin-top: 2px;
+  }
+
+  .read-as-text {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: var(--mono);
+    margin-left: 6px;
+  }
+
+  tr.uncertain-row td {
+    background: rgba(255,180,0,0.04);
+  }
+
+  .flag-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,180,0,0.12);
+    border: 1px solid rgba(255,180,0,0.3);
+    color: #ffcc44;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 12px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+  }
+
+  .tree-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+  }
+
+  .tree-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .tree-card .dbh {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  .tree-card .count {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .tree-card .hollows {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text2);
+    margin-top: 2px;
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin: 20px 0 10px;
+  }
+
+  .litter-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .litter-chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .litter-avg {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  .alert {
+    padding: 14px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .alert-warning {
+    background: rgba(255, 200, 50, 0.08);
+    border: 1px solid rgba(255, 200, 50, 0.25);
+    color: #ffd470;
+  }
+
+  .instructions {
+    margin-top: 48px;
+    padding: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .instructions h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 16px;
+  }
+
+  .step-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .step-list li {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.5;
+  }
+
+  .step-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    margin-top: 1px;
+  }
+
+  .error-box {
+    background: rgba(255,107,107,0.08);
+    border: 1px solid rgba(255,107,107,0.3);
+    border-radius: 10px;
+    padding: 20px;
+    color: var(--danger);
+    font-size: 13px;
+    margin-top: 16px;
+    display: none;
+  }
+
+  .error-box.visible { display: block; }
+
+  @media (max-width: 600px) {
+    main { padding: 24px 16px; }
+    .info-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+  </div>
+  <div class="header-text">
+    <h1>BAM SHEET READER</h1>
+    <p>NSW Biodiversity Assessment Method — Field Data Extractor</p>
+  </div>
+  <div class="badge">NSW BAM v2</div>
+</header>
+
+<main>
+
+  <div class="upload-area" id="dropzone">
+    <input type="file" id="fileInput" accept="image/*,.pdf" multiple>
+    <div class="upload-icon">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+    </div>
+    <h2>Upload BAM Sheets</h2>
+    <p>Drag & drop photos or PDFs of your field sheets here</p>
+    <p class="hint">FRONT + BACK — JPG · PNG · PDF · Up to 10 files</p>
+    <div class="file-list" id="fileList"></div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="extractBtn" disabled onclick="extractData()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35M11 8v6M8 11h6"/></svg>
+      Extract Data
+    </button>
+    <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
+    <span style="font-size:12px; color:var(--muted); font-family:var(--mono);" id="fileCount"></span>
+  </div>
+
+  <div class="status-bar" id="statusBar">
+    <div class="spinner"></div>
+    <span id="statusText">Reading images with AI…</span>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="results" id="results">
+
+    <div class="results-header">
+      <h2>// Extracted Data</h2>
+      <button class="btn btn-secondary" style="font-size:12px; padding:8px 16px;" onclick="copyAllForExcel()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        Copy All for Excel
+      </button>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab active" onclick="switchTab('plot')">Plot Info</button>
+      <button class="tab" onclick="switchTab('trees')">Tree Attributes</button>
+      <button class="tab" onclick="switchTab('species')">Species List</button>
+      <button class="tab" onclick="switchTab('paste')">Paste-Ready</button>
+    </div>
+
+    <!-- PLOT INFO TAB -->
+    <div class="tab-panel active" id="tab-plot">
+      <div class="info-grid" id="plotInfoGrid"></div>
+    </div>
+
+    <!-- TREES TAB -->
+    <div class="tab-panel" id="tab-trees">
+      <div class="section-label">Tree Stem Counts by DBH Class</div>
+      <div class="tree-grid" id="treeGrid"></div>
+      <div class="section-label" style="margin-top:24px;">Leaf Litter Cover (% per Subplot)</div>
+      <div class="litter-row" id="litterRow"></div>
+      <div style="margin-top:12px; font-size:13px; color:var(--text2);">Length of Logs: <span id="logLength" style="color:var(--accent); font-family:var(--mono);"></span></div>
+    </div>
+
+    <!-- SPECIES TAB -->
+    <div class="tab-panel" id="tab-species">
+      <div style="overflow-x:auto;">
+        <table class="species-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Scientific Name</th>
+              <th>GF</th>
+              <th>N/E/HTE</th>
+              <th>Cover</th>
+              <th>Abund.</th>
+              <th>Stratum</th>
+            </tr>
+          </thead>
+          <tbody id="speciesTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PASTE-READY TAB -->
+    <div class="tab-panel" id="tab-paste">
+      <div class="alert alert-warning">
+        <span>⚠</span>
+        <span>Always verify extracted data against your original sheet before saving in PlotMaster.</span>
+      </div>
+
+      <p class="section-label">Plot Info — paste into New Plot form</p>
+      <div class="copy-block">
+        <div class="copy-block-header">
+          <span>TAB-SEPARATED · matches New Plot field order</span>
+          <button class="copy-btn" onclick="copyBlock('plotPasteArea', this)">COPY</button>
+        </div>
+        <textarea class="data-output" id="plotPasteArea" readonly rows="14"></textarea>
+      </div>
+
+      <p class="section-label">Species List — paste into Species Cover/Abundance sheet</p>
+      <div class="copy-block">
+        <div class="copy-block-header">
+          <span>TAB-SEPARATED · Scientific Name | Cover | Abundance</span>
+          <button class="copy-btn" onclick="copyBlock('speciesPasteArea', this)">COPY</button>
+        </div>
+        <textarea class="data-output" id="speciesPasteArea" readonly rows="20"></textarea>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="instructions">
+    <h3>// How to use</h3>
+    <ol class="step-list">
+      <li><span class="step-num">1</span> Take clear photos of both the <strong>front</strong> and <strong>back</strong> of your BAM field sheet, or scan to PDF.</li>
+      <li><span class="step-num">2</span> Upload both images here (you can select multiple files at once).</li>
+      <li><span class="step-num">3</span> Click <strong>Extract Data</strong> — the AI will read all fields and species.</li>
+      <li><span class="step-num">4</span> Review the extracted data across the tabs.</li>
+      <li><span class="step-num">5</span> Go to the <strong>Paste-Ready</strong> tab, copy each block, and paste directly into your PlotMaster Excel workbook.</li>
+      <li><span class="step-num">6</span> Always double-check extracted values against your original sheet before saving.</li>
+    </ol>
+  </div>
+
+</main>
+
+<script>
+  let selectedFiles = [];
+  let extractedData = null;
+
+  // ─── File Handling ───────────────────────────────────────────────────
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    addFiles(Array.from(e.dataTransfer.files));
+  });
+
+  fileInput.addEventListener('change', e => addFiles(Array.from(e.target.files)));
+
+  function addFiles(files) {
+    files.forEach(f => {
+      if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) {
+        selectedFiles.push(f);
+      }
+    });
+    renderFileList();
+  }
+
+  function renderFileList() {
+    const list = document.getElementById('fileList');
+    list.innerHTML = selectedFiles.map((f, i) => `
+      <div class="file-chip">
+        <span>${f.name}</span>
+        <button onclick="removeFile(${i})" title="Remove">×</button>
+      </div>
+    `).join('');
+    document.getElementById('extractBtn').disabled = selectedFiles.length === 0;
+    document.getElementById('fileCount').textContent = selectedFiles.length > 0 ? `${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''} ready` : '';
+  }
+
+  function removeFile(i) {
+    selectedFiles.splice(i, 1);
+    renderFileList();
+  }
+
+  function clearAll() {
+    selectedFiles = [];
+    fileInput.value = '';
+    renderFileList();
+    document.getElementById('results').classList.remove('visible');
+    document.getElementById('errorBox').classList.remove('visible');
+    document.getElementById('statusBar').classList.remove('visible');
+    extractedData = null;
+  }
+
+  // ─── File → Base64 ───────────────────────────────────────────────────
+  function fileToBase64(file) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result.split(',')[1]);
+      r.onerror = () => rej(new Error('Read failed'));
+      r.readAsDataURL(file);
+    });
+  }
+
+  function getMediaType(file) {
+    if (file.type) return file.type;
+    const ext = file.name.split('.').pop().toLowerCase();
+    return ext === 'pdf' ? 'application/pdf' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+  }
+
+  // ─── Extraction ───────────────────────────────────────────────────────
+  async function extractData() {
+    const btn = document.getElementById('extractBtn');
+    const status = document.getElementById('statusBar');
+    const errorBox = document.getElementById('errorBox');
+
+    btn.disabled = true;
+    errorBox.classList.remove('visible');
+    status.classList.add('visible');
+    document.getElementById('results').classList.remove('visible');
+
+    try {
+      // Build message content with all uploaded images
+      const contentParts = [];
+
+      for (const file of selectedFiles) {
+        document.getElementById('statusText').textContent = `Reading ${file.name}…`;
+        const b64 = await fileToBase64(file);
+        const mt = getMediaType(file);
+
+        if (mt === 'application/pdf') {
+          contentParts.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } });
+        } else {
+          contentParts.push({ type: 'image', source: { type: 'base64', media_type: mt, data: b64 } });
+        }
+      }
+
+      contentParts.push({
+        type: 'text',
+        text: `You are an expert botanist and ecologist specialising in NSW flora, with deep knowledge of Australian plant taxonomy. You are also an expert at reading handwritten field survey forms.
+
+You will receive TWO images — the FRONT and BACK of a NSW BAM (Biodiversity Assessment Method) Site Field Survey Form. Extract all data precisely and return ONLY a valid JSON object. No markdown, no backticks, no explanation.
+
+════════════════════════════════════════
+FRONT SHEET EXTRACTION
+════════════════════════════════════════
+
+Find and read these specific fields from the printed form:
+
+HEADER FIELDS:
+- Date: handwritten in the "Date" box. Format DD MM YY or DD/MM/YY or similar. Read each digit separately.
+- Survey Name: text written in the "Survey Name" column of the header table
+- Zone ID: short code in the "Zone ID" column, often 2-6 characters like "BT SD"
+- Recorders: written in the "Recorders" box top right — may be initials or surnames
+- Datum: usually a 2-digit number like "55" in its own small box
+- Plot ID: alphanumeric in "Plot ID" box, e.g. "P 216", "BT26", "P216"
+- Plot dimensions: e.g. "20x50" in the "Plot dimensions" box
+- Easting: 6-7 digit number under the "Easting" label on the left
+- Northing: 6-7 digit number under the "Northing" label to the right of Easting
+- IBRA region: handwritten text beside "IBRA region" label — may be 2-3 words like "South West Slopes"
+- Midline bearing: a number (degrees) in the "Midline bearing from 0 m" box — look near the word "Magnetic" or a degree symbol
+- Vegetation Class: handwritten text in "Vegetation Class" box — e.g. "Open", "Open Forest", "Woodland"
+- Plant Community Type: written below Vegetation Class — usually a 4-digit number like "2296"
+- EEC: to the right of PCT, may be blank
+
+LEAF LITTER SECTION ONLY (ignore bare ground, cryptogam, rock):
+This is in the lower section titled "BAM Attribute (1 x 1 m plots)".
+Look for the row labelled "Litter cover (%)" — it has exactly 5 boxes in a row.
+Read each box value left to right as subplot 1 through 5.
+These are whole numbers or decimals representing percentage cover e.g. 40, 35, 55, 20, 85.
+DO NOT confuse this row with the "Bare ground cover", "Cryptogam cover" or "Rock cover" rows below it.
+
+TREE ATTRIBUTES:
+Right side table "BAM Attribute (1000 m² plot)":
+- Read # Tree Stems Count and # Stems with Hollows for each DBH class
+- Tally marks: IIII = 4, IIII I = 5 etc — convert to numbers
+- A tick or checkmark = "✓"
+
+════════════════════════════════════════
+BACK SHEET — SPECIES LIST
+════════════════════════════════════════
+
+The back sheet has a handwritten species list. The columns left to right are:
+  [GF Code] | [Species Name] | [N/E/HTE] | [Cover] | [Abund] | [stratum] | [voucher]
+
+The species name column is WIDE — it takes up roughly half the page width.
+The N/E/HTE column is narrow and may be blank for native species.
+Cover and Abundance are in narrow columns to the right of the name.
+
+COVER VALUES must be from this exact BAM scale — snap to nearest if ambiguous:
+0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 15, 20, 25, 35, 50, 70, 100
+
+ABUNDANCE VALUES are whole numbers. Common values: 1, 2, 3, 5, 10, 20, 25, 30, 40, 50, 60, 75, 100, 150, 200, 250, 300, 500, 750, 1000
+
+SPECIES NAME READING — CRITICAL:
+These are Latin binomial scientific names of vascular plants that occur in New South Wales, Australia. Every name has a genus (capitalised) and usually a species epithet (lowercase). Read every letter with full attention.
+
+STEP 1 — READ THE IBRA REGION FIRST:
+Before reading any species, find and read the "IBRA region" field on the front sheet.
+The NSW IBRA subregions include: Sydney Basin, South West Slopes, Nandewar, New England Tablelands, NSW North Coast, South Eastern Highlands, Australian Alps, Riverina, Cobar Peneplain, Broken Hill Complex, Channel Country, NSW South Western Slopes, Murray Darling Depression, Brigalow Belt South, Sydney Sill, Darling Riverine Plains, Mulga Lands, and others.
+Use this IBRA region to focus your species validation — prioritise species known to occur in that specific IBRA subregion according to the NSW Flora (PlantNET) and Atlas of Living Australia records.
+
+STEP 2 — VALIDATE EVERY SPECIES NAME AGAINST NSW FLORA + IBRA:
+After reading each handwritten name, apply this validation logic:
+- Ask: "Is this a real species known to occur in NSW, and specifically in the IBRA region identified in Step 1?"
+- If YES and clearly read → record as-is, uncertain: false
+- If YES but letters were ambiguous → record best read, uncertain: true, suggestions from that IBRA region's flora
+- If NO (doesn't match any known NSW species) → you have almost certainly misread letters. Re-examine and find the closest real NSW species that occurs in that IBRA region. Set uncertain: true.
+- If a name is plausible in NSW generally but not typical for the IBRA region → still record it but note in suggestion that it is unexpected for that region
+
+This means your "suggestion" field must always be real species from the NSW flora that plausibly occur in the identified IBRA region. Never invent species names.
+
+IBRA-BASED FLORA CONTEXT — use your knowledge of each region's characteristic flora:
+- South West Slopes / NSW SWS: grassy woodlands, Eucalyptus blakelyi/melliodora/albens, native grasses (Aristida, Bothriochloa, Themeda, Microlaena, Eragrostis, Sporobolus), forbs (Chrysocephalum, Wahlenbergia, Calotis, Goodenia, Glycine, Acaena, Dichondra, Hypochaeris)
+- New England Tablelands: Eucalyptus nova-anglica/camaldulensis, Poa, Rytidosperma, Austrostipa, alpine/subalpine elements
+- Sydney Basin / Cumberland Plain: Eucalyptus tereticornis/moluccana, Acacia parramattensis, Lomandra, Juncus, wetland species
+- South Eastern Highlands / Australian Alps: Eucalyptus delegatensis/pauciflora, Poa hiemata, Rytidosperma, Gentianella, alpine forbs
+- Riverina / Darling Riverine Plains: Callitris glaucophylla, Eucalyptus largiflorens/camaldulensis, Atriplex, Chenopodium, saltbush
+- NSW North Coast: Eucalyptus pilularis/saligna, Banksia, Hakea, coastal heathland species
+- Cobar Peneplain / Mulga Lands: Acacia aneura/doratoxylon, Eremophila, Sclerolaena, arid forbs
+- Brigalow Belt: Acacia harpophylla, Casuarina, Maireana, semi-arid species
+Draw on your full botanical knowledge for any IBRA region not listed here.
+
+HANDWRITING INTERPRETATION TIPS:
+- "r" and "n" are often indistinguishable — cross-check against NSW flora to resolve
+- "a" and "o" can look similar in cursive
+- "i" may lack its dot; "l" and "i" can look identical
+- Terminal "a" and "o" are easily confused
+- "c" and "e" can look the same
+- "b" and "h" can be confused at the start of epithets
+- Double letters (ll, rr) may look like single letters
+- Numbers in cover/abundance: "0.1" and "0.2" are common — do not read as "01" or "02"
+- Cover of 20 with abundance 1000 is valid — high-density grass, not an error
+- Some rows have a name but no cover/abundance — still include them
+- "(photo)" after a name means a voucher photo was taken — include in name as written
+
+UNCERTAINTY HANDLING:
+- If clearly readable AND matches a known NSW species: set "uncertain": false, leave "readAs" and "suggestion" empty
+- If uncertain about any letters OR your first reading doesn't match a known NSW species:
+  1. Put your best reading in "name" with [?] marking uncertain parts
+  2. Set "uncertain": true
+  3. Put what the letters literally look like in "readAs"
+  4. In "suggestion", list 1-3 real NSW species that best match what is written (comma-separated) — these MUST be valid NSW species names
+
+════════════════════════════════════════
+JSON OUTPUT
+════════════════════════════════════════
+
+{
+  "plotInfo": {
+    "date": "",
+    "surveyName": "",
+    "zoneId": "",
+    "recorders": "",
+    "datum": "",
+    "plotId": "",
+    "plotDimensions": "",
+    "easting": "",
+    "northing": "",
+    "ibra": "",
+    "midlineBearing": "",
+    "vegetationClass": "",
+    "pct": "",
+    "eec": ""
+  },
+  "treeAttributes": {
+    "80plus": {"trees": "", "hollows": ""},
+    "50to79": {"trees": "", "hollows": ""},
+    "30to49": {"trees": "", "hollows": ""},
+    "20to29": {"trees": "", "hollows": ""},
+    "10to19": {"trees": "", "hollows": ""},
+    "5to9": {"trees": "", "hollows": ""},
+    "sub5": {"trees": "", "hollows": ""},
+    "logLength": ""
+  },
+  "litterCover": ["", "", "", "", ""],
+  "species": [
+    {
+      "gfCode": "",
+      "name": "",
+      "uncertain": false,
+      "readAs": "",
+      "suggestion": "",
+      "nEHte": "",
+      "cover": "",
+      "abundance": "",
+      "stratum": ""
+    }
+  ]
+}
+
+Return ONLY the raw JSON. No markdown. No explanation. No backticks.`
+      });
+
+      document.getElementById('statusText').textContent = 'AI is reading your BAM sheets…';
+
+      const response = await fetch('https://bamplots.conorpg.workers.dev/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4000,
+          messages: [{ role: 'user', content: contentParts }]
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.error) throw new Error(data.error.message);
+
+      const rawText = data.content.map(c => c.text || '').join('').trim();
+      const clean = rawText.replace(/```json|```/g, '').trim();
+      extractedData = JSON.parse(clean);
+
+      renderResults(extractedData);
+      document.getElementById('results').classList.add('visible');
+      document.getElementById('statusBar').classList.remove('visible');
+      switchTab('plot');
+
+    } catch (err) {
+      console.error(err);
+      errorBox.textContent = '⚠ Extraction failed: ' + err.message + '. Check the images are clear and try again.';
+      errorBox.classList.add('visible');
+      document.getElementById('statusBar').classList.remove('visible');
+    }
+
+    btn.disabled = false;
+  }
+
+  // ─── Render Results ───────────────────────────────────────────────────
+  // ─── Render Results ───────────────────────────────────────────────────
+  function renderResults(d) {
+    renderPlotInfo(d.plotInfo);
+    renderTrees(d.treeAttributes, d.litterCover);
+    renderSpecies(d.species);
+    renderPasteAreas(d);
+  }
+
+  function val(v) {
+    return v && v.trim() !== '' ? `<span class="value">${v}</span>` : `<span class="value empty">—</span>`;
+  }
+
+  const plotFields = [
+    ['Date', 'date'],
+    ['Survey Name', 'surveyName'],
+    ['Zone ID', 'zoneId'],
+    ['Recorders', 'recorders'],
+    ['Datum', 'datum'],
+    ['Plot ID', 'plotId'],
+    ['Plot Dimensions', 'plotDimensions'],
+    ['Easting', 'easting'],
+    ['Northing', 'northing'],
+    ['IBRA Region', 'ibra'],
+    ['Midline Bearing (°)', 'midlineBearing'],
+    ['Vegetation Class', 'vegetationClass'],
+    ['Plant Community Type (PCT)', 'pct'],
+    ['EEC', 'eec'],
+  ];
+
+  function renderPlotInfo(info) {
+    document.getElementById('plotInfoGrid').innerHTML = plotFields.map(([label, key]) => `
+      <div class="info-card">
+        <label>${label}</label>
+        ${val(info[key])}
+      </div>
+    `).join('');
+  }
+
+  const dbhClasses = [
+    ['80+ cm', '80plus'],
+    ['50–79 cm', '50to79'],
+    ['30–49 cm', '30to49'],
+    ['20–29 cm', '20to29'],
+    ['10–19 cm', '10to19'],
+    ['5–9 cm', '5to9'],
+    ['< 5 cm', 'sub5'],
+  ];
+
+  function renderSubplotRow(label, values) {
+    const vals = Array.isArray(values) ? values : ['','','','',''];
+    const nums = vals.map(x => parseFloat(x)).filter(x => !isNaN(x));
+    const avg = nums.length ? (nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(1) : '—';
+    return `<div class="section-label" style="margin-top:16px;">${label}</div>
+      <div class="litter-row">
+        ${vals.map((v,i) => `<div class="litter-chip">SP${i+1}: ${v || '—'}</div>`).join('')}
+        <div class="litter-avg">Avg: ${avg}%</div>
+      </div>`;
+  }
+
+  function renderTrees(trees, litterCover) {
+    document.getElementById('treeGrid').innerHTML = dbhClasses.map(([label, key]) => {
+      const t = trees[key] || {};
+      const count = t.trees || '—';
+      const hollows = t.hollows || '0';
+      return `
+        <div class="tree-card">
+          <div>
+            <div class="dbh">${label}</div>
+            <div class="hollows">Hollows: ${hollows}</div>
+          </div>
+          <div class="count">${count}</div>
+        </div>
+      `;
+    }).join('');
+
+    document.getElementById('litterRow').innerHTML =
+      renderSubplotRow('Litter Cover (%)', Array.isArray(litterCover) ? litterCover : []);
+
+    document.getElementById('logLength').textContent = trees.logLength || '—';
+  }
+
+  function renderSpecies(species) {
+    if (!species || species.length === 0) {
+      document.getElementById('speciesTableBody').innerHTML = '<tr><td colspan="7" style="color:var(--muted); padding:20px; text-align:center;">No species extracted</td></tr>';
+      return;
+    }
+
+    const uncertainCount = species.filter(sp => sp.uncertain).length;
+    let html = '';
+
+    if (uncertainCount > 0) {
+      html += `<tr><td colspan="7" style="padding:8px 14px 4px;">
+        <div class="flag-count">⚠ ${uncertainCount} species flagged for review — suggestions shown below each</div>
+      </td></tr>`;
+    }
+
+    species.forEach((sp, i) => {
+      const isExotic = sp.nEHte && (sp.nEHte.toUpperCase() === 'E' || sp.nEHte.toUpperCase() === 'HTE');
+      const rowClass = sp.uncertain ? 'uncertain-row' : '';
+      const uncertainBadge = sp.uncertain ? `<span class="uncertain-badge" title="${sp.readAs ? 'Read as: ' + sp.readAs : ''}">? uncertain</span>` : '';
+
+      html += `<tr class="${rowClass}" style="${sp.uncertain ? 'border-top: 1px solid rgba(255,180,0,0.2);' : ''}">
+          <td style="color:var(--muted); font-family:var(--mono); font-size:11px;">${i+1}</td>
+          <td>
+            <span class="species-name">${sp.name || '—'}</span>
+            ${isExotic ? `<span class="exotic-badge">${sp.nEHte}</span>` : ''}
+            ${uncertainBadge}
+          </td>
+          <td style="font-family:var(--mono); font-size:11px;">${sp.gfCode || ''}</td>
+          <td style="font-family:var(--mono); font-size:12px; color:var(--text2);">${sp.nEHte || ''}</td>
+          <td style="font-family:var(--mono);">${sp.cover || ''}</td>
+          <td style="font-family:var(--mono);">${sp.abundance || ''}</td>
+          <td style="font-family:var(--mono); font-size:11px;">${sp.stratum || ''}</td>
+        </tr>`;
+
+      if (sp.uncertain && sp.suggestion) {
+        html += `<tr class="suggestion-row">
+          <td></td>
+          <td colspan="6">
+            <span class="suggestion-text">💡 Could be: ${sp.suggestion}</span>
+            ${sp.readAs ? `<span class="read-as-text">(read as: "${sp.readAs}")</span>` : ''}
+          </td>
+        </tr>`;
+      }
+    });
+
+    document.getElementById('speciesTableBody').innerHTML = html;
+  }
+
+  function renderPasteAreas(d) {
+    const pi = d.plotInfo || {};
+    const ta = d.treeAttributes || {};
+
+    // Plot info paste — label: value format, one per line for easy manual entry
+    const plotLines = [
+      `Date\t${pi.date || ''}`,
+      `Survey Name\t${pi.surveyName || ''}`,
+      `Zone ID\t${pi.zoneId || ''}`,
+      `Recorders\t${pi.recorders || ''}`,
+      `Datum\t${pi.datum || ''}`,
+      `Plot ID\t${pi.plotId || ''}`,
+      `Plot Dimensions\t${pi.plotDimensions || ''}`,
+      `Easting\t${pi.easting || ''}`,
+      `Northing\t${pi.northing || ''}`,
+      `IBRA Region\t${pi.ibra || ''}`,
+      `Midline Bearing\t${pi.midlineBearing || ''}`,
+      `Vegetation Class\t${pi.vegetationClass || ''}`,
+      `Plant Community Type (PCT)\t${pi.pct || ''}`,
+      `EEC\t${pi.eec || ''}`,
+      `--- TREE ATTRIBUTES ---\t`,
+      `80+ cm Trees\t${(ta['80plus'] || {}).trees || ''}`,
+      `80+ cm Hollows\t${(ta['80plus'] || {}).hollows || ''}`,
+      `50-79 cm Trees\t${(ta['50to79'] || {}).trees || ''}`,
+      `50-79 cm Hollows\t${(ta['50to79'] || {}).hollows || ''}`,
+      `30-49 cm Trees\t${(ta['30to49'] || {}).trees || ''}`,
+      `30-49 cm Hollows\t${(ta['30to49'] || {}).hollows || ''}`,
+      `20-29 cm Trees\t${(ta['20to29'] || {}).trees || ''}`,
+      `20-29 cm Hollows\t${(ta['20to29'] || {}).hollows || ''}`,
+      `10-19 cm Trees\t${(ta['10to19'] || {}).trees || ''}`,
+      `10-19 cm Hollows\t${(ta['10to19'] || {}).hollows || ''}`,
+      `5-9 cm Trees\t${(ta['5to9'] || {}).trees || ''}`,
+      `5-9 cm Hollows\t${(ta['5to9'] || {}).hollows || ''}`,
+      `<5 cm Trees\t${(ta['sub5'] || {}).trees || ''}`,
+      `Length of Logs (m)\t${ta.logLength || ''}`,
+      `--- LEAF LITTER COVER ---\t`,
+      `Litter SP1\t${(d.litterCover || [])[0] || ''}`,
+      `Litter SP2\t${(d.litterCover || [])[1] || ''}`,
+      `Litter SP3\t${(d.litterCover || [])[2] || ''}`,
+      `Litter SP4\t${(d.litterCover || [])[3] || ''}`,
+      `Litter SP5\t${(d.litterCover || [])[4] || ''}`,
+    ];
+
+    document.getElementById('plotPasteArea').value = plotLines.join('\n');
+
+    // Species — tab-separated with header
+    const speciesLines = ['Scientific Name\tCover\tAbundance\tStratum\tGF Code\tN/E/HTE'];
+    (d.species || []).forEach(sp => {
+      speciesLines.push(`${sp.name || ''}\t${sp.cover || ''}\t${sp.abundance || ''}\t${sp.stratum || ''}\t${sp.gfCode || ''}\t${sp.nEHte || ''}`);
+    });
+    document.getElementById('speciesPasteArea').value = speciesLines.join('\n');
+  }
+
+  // ─── Tab Switching ────────────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      const tabs = ['plot', 'trees', 'species', 'paste'];
+      t.classList.toggle('active', tabs[i] === name);
+    });
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.toggle('active', p.id === 'tab-' + name);
+    });
+  }
+
+  // ─── Copy Helpers ─────────────────────────────────────────────────────
+  function copyBlock(textareaId, btn) {
+    const ta = document.getElementById(textareaId);
+    navigator.clipboard.writeText(ta.value).then(() => {
+      btn.textContent = 'COPIED ✓';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+    });
+  }
+
+  function copyAllForExcel() {
+    if (!extractedData) return;
+    const plot = document.getElementById('plotPasteArea').value;
+    const species = document.getElementById('speciesPasteArea').value;
+    navigator.clipboard.writeText(plot + '\n\n' + species).then(() => {
+      alert('All data copied to clipboard!');
+    });
+  }
+</script>
+
+</body>
+</html>
