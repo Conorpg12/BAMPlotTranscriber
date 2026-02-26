@@ -483,6 +483,39 @@
     background: rgba(255,180,0,0.04);
   }
 
+  .use-btn {
+    background: none;
+    border: 1px solid rgba(255,180,0,0.4);
+    border-radius: 4px;
+    color: #ffcc44;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: all 0.15s;
+    letter-spacing: 0.05em;
+  }
+
+  .use-btn:hover {
+    background: rgba(255,180,0,0.15);
+    border-color: #ffcc44;
+  }
+
+  .use-btn.accepted {
+    background: rgba(109,204,109,0.15);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  tr.accepted-row td {
+    background: rgba(109,204,109,0.04) !important;
+  }
+
+  tr.accepted-row .species-name {
+    color: var(--accent2);
+  }
+
   .flag-count {
     display: inline-flex;
     align-items: center;
@@ -725,6 +758,12 @@
 
     <!-- SPECIES TAB -->
     <div class="tab-panel" id="tab-species">
+      <div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
+        <button class="btn btn-secondary" style="font-size:12px; padding:7px 16px;" onclick="copySpeciesNames(this)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          Copy Species Names
+        </button>
+      </div>
       <div style="overflow-x:auto;">
         <table class="species-table">
           <thead>
@@ -1156,32 +1195,60 @@ Return ONLY the raw JSON. No markdown. No explanation. No backticks.`
     document.getElementById('logLength').textContent = trees.logLength || '—';
   }
 
+  // Store species data globally so accept buttons can mutate it
+  let currentSpecies = [];
+
   function renderSpecies(species) {
-    if (!species || species.length === 0) {
+    currentSpecies = species ? JSON.parse(JSON.stringify(species)) : [];
+    buildSpeciesTable();
+  }
+
+  function acceptSuggestion(index, suggestion) {
+    // Take first suggestion if comma-separated
+    const accepted = suggestion.split(',')[0].trim();
+    currentSpecies[index].name = accepted;
+    currentSpecies[index].uncertain = false;
+    currentSpecies[index].accepted = true;
+    buildSpeciesTable();
+    // Rebuild paste area with updated names
+    if (extractedData) {
+      extractedData.species = currentSpecies;
+      renderPasteAreas(extractedData);
+    }
+  }
+
+  function buildSpeciesTable() {
+    if (!currentSpecies || currentSpecies.length === 0) {
       document.getElementById('speciesTableBody').innerHTML = '<tr><td colspan="7" style="color:var(--muted); padding:20px; text-align:center;">No species extracted</td></tr>';
       return;
     }
 
-    const uncertainCount = species.filter(sp => sp.uncertain).length;
+    const uncertainCount = currentSpecies.filter(sp => sp.uncertain).length;
+    const acceptedCount = currentSpecies.filter(sp => sp.accepted).length;
     let html = '';
 
-    if (uncertainCount > 0) {
-      html += `<tr><td colspan="7" style="padding:8px 14px 4px;">
-        <div class="flag-count">⚠ ${uncertainCount} species flagged for review — suggestions shown below each</div>
-      </td></tr>`;
+    if (uncertainCount > 0 || acceptedCount > 0) {
+      html += `<tr><td colspan="7" style="padding:8px 14px 4px; display:flex; gap:10px; flex-wrap:wrap;">`;
+      if (uncertainCount > 0) html += `<div class="flag-count">⚠ ${uncertainCount} still need review</div>`;
+      if (acceptedCount > 0) html += `<div class="flag-count" style="background:rgba(109,204,109,0.1); border-color:rgba(109,204,109,0.3); color:var(--accent);">✓ ${acceptedCount} accepted</div>`;
+      html += `</td></tr>`;
     }
 
-    species.forEach((sp, i) => {
+    currentSpecies.forEach((sp, i) => {
       const isExotic = sp.nEHte && (sp.nEHte.toUpperCase() === 'E' || sp.nEHte.toUpperCase() === 'HTE');
-      const rowClass = sp.uncertain ? 'uncertain-row' : '';
-      const uncertainBadge = sp.uncertain ? `<span class="uncertain-badge" title="${sp.readAs ? 'Read as: ' + sp.readAs : ''}">? uncertain</span>` : '';
+      const rowClass = sp.accepted ? 'accepted-row' : (sp.uncertain ? 'uncertain-row' : '');
+      const borderStyle = sp.uncertain ? 'border-top: 1px solid rgba(255,180,0,0.2);' : (sp.accepted ? 'border-top: 1px solid rgba(109,204,109,0.2);' : '');
 
-      html += `<tr class="${rowClass}" style="${sp.uncertain ? 'border-top: 1px solid rgba(255,180,0,0.2);' : ''}">
+      let badge = '';
+      if (sp.uncertain) badge = `<span class="uncertain-badge">? uncertain</span>`;
+      else if (sp.accepted) badge = `<span class="uncertain-badge" style="background:rgba(109,204,109,0.12); border-color:rgba(109,204,109,0.3); color:var(--accent);">✓ accepted</span>`;
+
+      html += `<tr class="${rowClass}" style="${borderStyle}">
           <td style="color:var(--muted); font-family:var(--mono); font-size:11px;">${i+1}</td>
           <td>
             <span class="species-name">${sp.name || '—'}</span>
             ${isExotic ? `<span class="exotic-badge">${sp.nEHte}</span>` : ''}
-            ${uncertainBadge}
+            ${badge}
           </td>
           <td style="font-family:var(--mono); font-size:11px;">${sp.gfCode || ''}</td>
           <td style="font-family:var(--mono); font-size:12px; color:var(--text2);">${sp.nEHte || ''}</td>
@@ -1191,10 +1258,16 @@ Return ONLY the raw JSON. No markdown. No explanation. No backticks.`
         </tr>`;
 
       if (sp.uncertain && sp.suggestion) {
+        // Parse multiple suggestions into individual buttons
+        const suggestions = sp.suggestion.split(',').map(s => s.trim()).filter(Boolean);
+        const suggestionButtons = suggestions.map(s =>
+          `<button class="use-btn" onclick="acceptSuggestion(${i}, '${s.replace(/'/g, "\'")}')">Use: ${s}</button>`
+        ).join('');
+
         html += `<tr class="suggestion-row">
           <td></td>
           <td colspan="6">
-            <span class="suggestion-text">💡 Could be: ${sp.suggestion}</span>
+            <span class="suggestion-text">💡 ${suggestionButtons}</span>
             ${sp.readAs ? `<span class="read-as-text">(read as: "${sp.readAs}")</span>` : ''}
           </td>
         </tr>`;
@@ -1255,6 +1328,24 @@ Return ONLY the raw JSON. No markdown. No explanation. No backticks.`
       speciesLines.push(`${sp.name || ''}\t${sp.cover || ''}\t${sp.abundance || ''}\t${sp.stratum || ''}\t${sp.gfCode || ''}\t${sp.nEHte || ''}`);
     });
     document.getElementById('speciesPasteArea').value = speciesLines.join('\n');
+  }
+
+  function copySpeciesNames(btn) {
+    const names = currentSpecies
+      .map(sp => sp.name || '')
+      .filter(Boolean)
+      .join('\n');
+    navigator.clipboard.writeText(names).then(() => {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+      btn.style.borderColor = 'var(--accent)';
+      btn.style.color = 'var(--accent)';
+      setTimeout(() => {
+        btn.innerHTML = orig;
+        btn.style.borderColor = '';
+        btn.style.color = '';
+      }, 2000);
+    });
   }
 
   // ─── Tab Switching ────────────────────────────────────────────────────
