@@ -1186,28 +1186,88 @@ Return ONLY the raw JSON. No markdown. No explanation. No backticks.`
 
       document.getElementById('statusText').textContent = 'AI is reading your BAM sheets…';
 
-      // ── PASS 1: Raw transcription ──────────────────────────────
-      document.getElementById('statusText').textContent = 'Pass 1 of 2 — transcribing handwriting…';
+      // ── CALL 1: Free text reading — no JSON pressure ──────────────
+      document.getElementById('statusText').textContent = 'Step 1 of 3 — reading handwriting…';
 
-      const pass1Parts = [...contentParts.slice(0, -1), {
-        type: 'text',
-        text: `You are a precise document transcription specialist. Your ONLY job is to read handwriting exactly as it appears — do not interpret, correct, or validate anything.
+      const call1Body = {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: [
+            ...contentParts.slice(0, -1),
+            {
+              type: 'text',
+              text: `You are reading a handwritten NSW BAM field survey form. Your ONLY job right now is to transcribe what you see — do not correct, interpret or validate anything.
 
-Transcribe this BAM field survey form exactly as written. Return ONLY valid JSON, no markdown.
+FRONT SHEET — read these fields exactly as written:
+- Date, Survey Name, Zone ID, Recorders, Datum, Plot ID, Plot dimensions
+- Easting, Northing, IBRA region, Midline bearing, Vegetation Class, Plant Community Type, EEC
+- Litter cover row: read the 5 numbers in the "Litter cover (%)" row left to right
 
-For the BACK SHEET species list, read every row that has writing. The columns are:
-[Row#] | [GF Code] | [Species Name] | [N/E/HTE] | [Cover] | [Abund] | [stratum]
+BACK SHEET — read every row that has handwriting:
+For each row, read: the species name exactly as written letter by letter, then the cover number, then the abundance number.
 
-TRANSCRIPTION RULES:
-- Copy every letter exactly as you see it — do not correct spelling
-- Row numbers on the left (1,2,3...) are printed labels, not data
-- Cover = first number after the species name. Must be from: 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 15, 20, 25, 35, 50, 70, 100
-- Abundance = second number, usually larger. Common values: 1,2,3,5,10,20,25,30,40,50,60,75,100,150,200,250,300,500,750,1000
-- Large numbers like 100,200,500,1000 are ALWAYS abundance, never cover
-- Small decimals like 0.1,0.2,0.5 are ALWAYS cover, never abundance
-- N/E/HTE column is usually blank for native species — blank is fine
-- Read every row with any handwriting, even if partially legible
+The cover column contains small numbers (0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 15, 20, 25, 35, 50, 70, 100).
+The abundance column contains larger whole numbers (1, 5, 10, 20, 50, 100, 150, 200, 250, 300, 500, 750, 1000).
+Large numbers like 100, 500, 1000 are ALWAYS abundance. Small decimals like 0.1, 0.2 are ALWAYS cover.
+The N/E/HTE column is narrow and usually blank — if blank, leave it out.
+Row numbers printed on the left (1, 2, 3...) are labels, not data.
 
+Write your answer as plain text, one species per line, like this:
+Row 1: [exactly what you see] | cover: [number] | abund: [number]
+Row 2: [exactly what you see] | cover: [number] | abund: [number]
+...and so on for every row with writing.
+
+Then on separate lines write:
+DATE: [value]
+ZONE: [value]
+PLOT_ID: [value]
+IBRA: [value]
+BEARING: [value]
+VEG_CLASS: [value]
+PCT: [value]
+EASTING: [value]
+NORTHING: [value]
+RECORDERS: [value]
+DATUM: [value]
+LITTER: [5 comma-separated values]`
+            }
+          ]
+        }]
+      };
+
+      const resp1 = await fetch('https://bamplots.conorpg.workers.dev/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(call1Body)
+      });
+      const data1 = await resp1.json();
+      if (data1.error) throw new Error(data1.error.message);
+      const transcription = data1.content.map(c => c.text || '').join('').trim();
+      console.log('Call 1 transcription:', transcription);
+
+      // ── CALL 2: Convert transcription to JSON ────────────────────
+      document.getElementById('statusText').textContent = 'Step 2 of 3 — structuring data…';
+
+      const call2Body = {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 3000,
+        messages: [{
+          role: 'user',
+          content: `Convert this raw BAM field sheet transcription into the JSON structure below.
+
+RAW TRANSCRIPTION:
+${transcription}
+
+RULES:
+- Copy species names EXACTLY as transcribed — do not correct spelling yet
+- Cover must be from: 0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 15, 20, 25, 35, 50, 70, 100
+- Abundance must be a whole number
+- Set uncertain: false for all species — validation happens separately
+- Extract all plot info fields from the transcription
+
+Return ONLY this JSON, no markdown:
 {
   "plotInfo": {
     "date": "", "surveyName": "", "zoneId": "", "recorders": "",
@@ -1226,54 +1286,56 @@ TRANSCRIPTION RULES:
     "logLength": ""
   },
   "litterCover": ["","","","",""],
-  "rawSpecies": [
-    {"gfCode": "", "rawName": "", "nEHte": "", "cover": "", "abundance": "", "stratum": ""}
+  "species": [
+    {"gfCode": "", "name": "", "uncertain": false, "readAs": "", "suggestion": "", "nEHte": "", "cover": "", "abundance": "", "stratum": ""}
   ]
-}
+}`
+        }]
+      };
 
-Return ONLY the raw JSON. No markdown. No backticks.`
-      }];
-
-      const resp1 = await fetch('https://bamplots.conorpg.workers.dev/', {
+      const resp2 = await fetch('https://bamplots.conorpg.workers.dev/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages: [{ role: 'user', content: pass1Parts }] })
+        body: JSON.stringify(call2Body)
       });
-      const data1 = await resp1.json();
-      if (data1.error) throw new Error(data1.error.message);
-      const raw1 = data1.content.map(c => c.text || '').join('').replace(/```json|```/g, '').trim();
-      const pass1Result = JSON.parse(raw1);
+      const data2 = await resp2.json();
+      if (data2.error) throw new Error(data2.error.message);
+      const raw2 = data2.content.map(c => c.text || '').join('').replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(raw2);
+      console.log('Call 2 parsed:', parsed.species?.length, 'species');
 
-      // ── PASS 2: Species validation against company database ──────
-      document.getElementById('statusText').textContent = 'Pass 2 of 2 — validating species against database…';
+      // ── CALL 3: Species validation against NSW flora + IBRA ──────
+      document.getElementById('statusText').textContent = 'Step 3 of 3 — validating species…';
 
-      const ibra = pass1Result.plotInfo?.ibra || 'unknown';
-      const rawSpeciesList = pass1Result.rawSpecies.map((s, i) => `${i+1}. "${s.rawName}" (cover:${s.cover}, abund:${s.abundance})`).join('\n');
+      const ibra = parsed.plotInfo?.ibra || '';
+      const speciesListText = (parsed.species || [])
+        .map((s, i) => `${i+1}. "${s.name}" (cover:${s.cover}, abund:${s.abundance})`)
+        .join('\n');
 
-      const pass2Resp = await fetch('https://bamplots.conorpg.workers.dev/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
-          messages: [{
-            role: 'user',
-            content: `You are an expert NSW botanist. You have been given a raw transcription of handwritten species names from a BAM field survey form. The IBRA region is: "${ibra}".
+      const call3Body = {
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: `You are an expert NSW botanist. Below is a list of species names transcribed from a handwritten BAM field survey form. The IBRA region is: "${ibra}".
 
-Your job is to validate and correct each species name against known NSW flora (PlantNET database), using the IBRA region to prioritise likely species.
+Your job is to validate each name. For each one:
+1. Is it a real species known to occur in NSW (PlantNET database)?
+2. Does it make sense for the ${ibra} IBRA region?
+3. If the transcription has obvious letter misreads (e.g. "rdmosa" → "ramosa", "laccitformis" → "lautiformis"), correct them
+4. If genuinely unclear, flag as uncertain with real NSW alternatives
 
-Raw transcriptions:
-${rawSpeciesList}
+CRITICAL RULES:
+- Only correct obvious letter-level misreads — do NOT substitute a completely different species
+- If you read "Bothriochloa macra" — that IS a real NSW species, leave it as-is
+- If you read "Bolthrionnica macro" — that is NOT real, correct to "Bothriochloa macra"
+- Species epithets are always lowercase. "spp." always lowercase.
+- Never invent species names. Every suggestion must be a real NSW species.
 
-For each species:
-1. Identify the most likely intended NSW species name based on what was written
-2. If clearly correct and exists in NSW flora → uncertain: false
-3. If misread or misspelled → correct it, uncertain: true, explain in suggestion
-4. If genuinely ambiguous → give 2-3 real NSW alternatives in suggestion
-5. Species epithets are always lowercase. "spp." is always lowercase.
-6. Never invent species names — every suggestion must be a real NSW species
+Transcribed species:
+${speciesListText}
 
-Return ONLY this JSON array, no markdown:
+Return ONLY a JSON array, no markdown:
 [
   {
     "index": 1,
@@ -1283,44 +1345,45 @@ Return ONLY this JSON array, no markdown:
     "suggestion": ""
   }
 ]`
-          }]
-        })
+        }]
+      };
+
+      const resp3 = await fetch('https://bamplots.conorpg.workers.dev/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(call3Body)
       });
+      const data3 = await resp3.json();
+      if (data3.error) throw new Error(data3.error.message);
+      const raw3 = data3.content.map(c => c.text || '').join('').replace(/```json|```/g, '').trim();
+      const validated = JSON.parse(raw3);
+      console.log('Call 3 validated:', validated.length, 'species');
 
-      const data2 = await pass2Resp.json();
-      if (data2.error) throw new Error(data2.error.message);
-      const raw2 = data2.content.map(c => c.text || '').join('').replace(/```json|```/g, '').trim();
-      const pass2Result = JSON.parse(raw2);
+      // ── Merge all results + company DB check ────────────────────
+      const finalSpecies = (parsed.species || []).map((sp, i) => {
+        const v = validated.find(x => x.index === i + 1) || {};
+        const correctedName = v.correctedName || sp.name;
 
-      // ── Merge pass 1 + pass 2 + client-side DB validation ────────
-      const mergedSpecies = pass1Result.rawSpecies.map((sp, i) => {
-        const validated = pass2Result.find(v => v.index === i + 1) || {};
-        const correctedName = validated.correctedName || sp.rawName;
-        
-        // Client-side validation against embedded company species database
+        // Company DB check
         const dbCheck = validateSpecies(correctedName);
-        let finalUncertain = validated.uncertain || false;
-        let finalSuggestion = validated.suggestion || '';
-        
-        // If AI says confident but not in our database, flag it
-        if (!dbCheck.inDb && !finalUncertain) {
-          const dbSuggestions = dbCheck.suggestions;
-          if (dbSuggestions.length > 0) {
-            finalUncertain = true;
-            finalSuggestion = finalSuggestion 
-              ? finalSuggestion + '; DB suggests: ' + dbSuggestions.join(', ')
-              : 'Not in company database. Could be: ' + dbSuggestions.join(', ');
-          }
+        let uncertain = v.uncertain || false;
+        let suggestion = v.suggestion || '';
+
+        if (!dbCheck.inDb && !uncertain && dbCheck.suggestions.length > 0) {
+          uncertain = true;
+          suggestion = suggestion
+            ? suggestion + '; DB: ' + dbCheck.suggestions.join(', ')
+            : dbCheck.suggestions.join(', ');
         }
 
         return {
-          gfCode: sp.gfCode,
+          gfCode: sp.gfCode || '',
           name: correctedName,
-          uncertain: finalUncertain,
-          readAs: validated.readAs || sp.rawName,
-          suggestion: finalSuggestion,
+          uncertain: uncertain,
+          readAs: v.readAs || (correctedName !== sp.name ? sp.name : ''),
+          suggestion: suggestion,
           inCompanyDb: dbCheck.inDb,
-          nEHte: sp.nEHte || (EXOTIC_SET.has(correctedName) ? 'E' : ''),
+          nEHte: sp.nEHte || (EXOTIC_SET && EXOTIC_SET.has(correctedName) ? 'E' : ''),
           cover: sp.cover,
           abundance: sp.abundance,
           stratum: sp.stratum
@@ -1328,10 +1391,10 @@ Return ONLY this JSON array, no markdown:
       });
 
       extractedData = {
-        plotInfo: pass1Result.plotInfo,
-        treeAttributes: pass1Result.treeAttributes,
-        litterCover: pass1Result.litterCover,
-        species: mergedSpecies
+        plotInfo: parsed.plotInfo,
+        treeAttributes: parsed.treeAttributes,
+        litterCover: parsed.litterCover,
+        species: finalSpecies
       };
 
       renderResults(extractedData);
@@ -1556,21 +1619,21 @@ Return ONLY this JSON array, no markdown:
       `Litter SP5\t${(d.litterCover || [])[4] || ''}`,
     ];
 
-    document.getElementById('plotPasteArea').value = plotLines.join('\n');
+    document.getElementById('plotPasteArea').value = plotLines.join('\\n');
 
     // Species — tab-separated with header
     const speciesLines = ['Scientific Name\tCover\tAbundance\tStratum\tGF Code\tN/E/HTE'];
     (d.species || []).forEach(sp => {
       speciesLines.push(`${sp.name || ''}\t${sp.cover || ''}\t${sp.abundance || ''}\t${sp.stratum || ''}\t${sp.gfCode || ''}\t${sp.nEHte || ''}`);
     });
-    document.getElementById('speciesPasteArea').value = speciesLines.join('\n');
+    document.getElementById('speciesPasteArea').value = speciesLines.join('\\n');
   }
 
   function copySpeciesNames(btn) {
     const names = currentSpecies
       .map(sp => sp.name || '')
       .filter(Boolean)
-      .join('\n');
+      .join('\\n');
     navigator.clipboard.writeText(names).then(() => {
       const orig = btn.innerHTML;
       btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
